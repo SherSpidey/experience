@@ -1,0 +1,180 @@
+---
+layout: post
+title:  "几何体数据结构"
+date:   2024-04-25
+categories: learn
+---
+
+# 几何体数据结构
+
+## 四叉树(QuadTree)
+四叉树，又称为四元数，以及Q树(Q-Tree)
+
+#### 情景分析
+- 三角形不可能相互包含
+- 从根节点开始找到包含目标的最小子节点？然后遍历这个节点下的所有物体，从而找到包含目标的三角形
+
+#### 要解决的的问题
+- 大物体会横跨多个区域
+- 根据物体的位置与尺寸定义到节点？
+- 如何确定最小的尺寸
+
+``` c++
+#pragma once
+
+#include "base.h"
+#include "math.h"
+
+template <class Value>
+class Tree4
+{
+private:
+    struct Pointer
+    {
+        Tree4 *LT, *RT, *LB, *RB;
+        Pointer() : LT(nullptr), RT(nullptr), LB(nullptr), RB(nullptr)
+        {
+        }
+        ~Pointer()
+        {
+            SAFE_DELETE(LT);
+            SAFE_DELETE(RT);
+            SAFE_DELETE(LB);
+            SAFE_DELETE(RB);
+        }
+    };
+
+public:
+    Tree4(const MATH Rect &rect, size_t n = 0) : _rect(rect)
+    {
+        STD queue<Tree4 *> queue;
+        queue.push(this);
+        for (auto c = 1; n != 0; --n, c *= 4)
+        {
+            for (auto i = 0; i != c; ++i)
+            {
+                auto tree = queue.front();
+                tree->Root();
+                queue.pop();
+                queue.push(tree->_pointer.LT);
+                queue.push(tree->_pointer.RT);
+                queue.push(tree->_pointer.LB);
+                queue.push(tree->_pointer.RB);
+            }
+        }
+    }
+
+    template <class Range>
+    bool Insert(const Value *value, const Range &range)
+    {
+        auto tree = Contain(range);
+        auto ret = nullptr != tree;
+        if (ret)
+        {
+            tree->_values.emplace_back(value);
+        }
+        return ret;
+    }
+
+    template <class Range>
+    bool Remove(const Value *value, const Range &range)
+    {
+        auto tree = Contain(range);
+        auto ret = nullptr != tree;
+        if (ret)
+        {
+            ret = tree->Remove(value);
+        }
+        return ret;
+    }
+
+    template <class Range>
+    bool Match(const Range &range, const STD function<bool(Value *)> &func)
+    {
+        if (!MATH intersect(_rect, range))
+        {
+            return true;
+        }
+
+        for (auto &value : _values)
+        {
+            if (!func(const_cast<Value *>(value)))
+            {
+                return false;
+            }
+        }
+
+        auto ret = true;
+        if (!IsLeaf())
+        {
+            if (ret)
+                ret = _pointer.LT->Match(range, func);
+            if (ret)
+                ret = _pointer.RT->Match(range, func);
+            if (ret)
+                ret = _pointer.LB->Match(range, func);
+            if (ret)
+                ret = _pointer.RB->Match(range, func);
+        }
+        return ret;
+    }
+
+    template <class Range>
+    Tree4 *Contain(const Range &range)
+    {
+        Tree4<Value> *ret = nullptr;
+        if (MATH contain(STD cref(_rect), range))
+        {
+            if (!IsLeaf())
+            {
+                if (nullptr == ret)
+                    ret = _pointer.LT->Contain(range);
+                if (nullptr == ret)
+                    ret = _pointer.RT->Contain(range);
+                if (nullptr == ret)
+                    ret = _pointer.LB->Contain(range);
+                if (nullptr == ret)
+                    ret = _pointer.RB->Contain(range);
+            }
+            if (nullptr == ret)
+                ret = this;
+        }
+        return ret;
+    }
+
+private:
+    void Root()
+    {
+        _pointer.LT = new Tree4(MATH Rect(_rect.x, _rect.y, _rect.w * 0.5f, _rect.h * 0.5f));
+        _pointer.LB = new Tree4(MATH Rect(_rect.x, _rect.y + _rect.h * 0.5f, _rect.w * 0.5f, _rect.h * 0.5f));
+        _pointer.RT = new Tree4(MATH Rect(_rect.x + _rect.w * 0.5f, _rect.y, _rect.w * 0.5f, _rect.h * 0.5f));
+        _pointer.RB = new Tree4(MATH Rect(_rect.x + _rect.w * 0.5f, _rect.y + _rect.h * 0.5f, _rect.w * 0.5f, _rect.h * 0.5f));
+    }
+
+    bool Remove(const Value *value)
+    {
+        auto iter = STD find(_values.begin(), _values.end(), value);
+        auto ret = _values.end() != iter;
+        if (ret)
+        {
+            _values.erase(iter);
+        }
+        return ret;
+    }
+
+    bool IsLeaf()
+    {
+        return nullptr == _pointer.LT || nullptr == _pointer.RT || nullptr == _pointer.LB || nullptr == _pointer.RB;
+    }
+
+    Tree4(const Tree4 &) = delete;
+    Tree4(Tree4 &&) = delete;
+    Tree4 &operator=(const Tree4 &) = delete;
+    Tree4 &operator=(Tree4 &&) = delete;
+
+private:
+    MATH Rect _rect;
+    Pointer _pointer;
+    STD list<const Value *> _values;
+};
+```
