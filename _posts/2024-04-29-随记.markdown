@@ -1,11 +1,4 @@
----
-layout: post
-title:  "随记"
-date:   2024-04-29
-categories: learn
----
-
-# 随记
+# 随写
 
 ## OCCT
 
@@ -17,6 +10,181 @@ categories: learn
 - 退化边(degenerated edge)，位于曲面奇点位置，在三维空间中为一个点
 
 例如，对球面遍历取边，获得到三条边，其中两条边分别为缝合边和退化边，`BRep_Tool::Curve(edge, first, last)`都会返回 `nullptr`。
+
+## Open Inventor
+
+### 关于SoSelection
+`SoSelection`进行选择时，其根本原理是将选中物体的path的保存起来，所以主动调用select/deselect都是通过各种方法获得path加以储存。故尽管是同一物体，但如果他是由多个形状组成，由于每一个形状都能被单独pick形成path，所以点击同一物体的不同地方会将不同的path保存起来，不是直觉上的，保存选中物体的概念，这个需要注意。
+
+### 关于SbPlane
+`SbPlane`的`getDistanceFromOrigin()`是带方向的距离。顺着法线方向的移动为正，反过来则为负，而平面方程`Ax+By+Cz+D=0`中的`D`则刚好是这个距离的相反数，因为这个距离表达其实是`Ax+By+Cz=-D`，方程的右侧即为`getDistanceFromOrigin()`返回的值。
+```python
+class CapCube:
+def __init__(self, plane, target: coin.SoNode, viewport, handler: coin.SoShapeHints):
+self.plane = plane  # SbPlane
+self.normal = plane.getNormal()
+self.dist = plane.getDistanceFromOrigin()
+self.viewport = viewport
+
+self.target = target
+self.handler = handler
+
+def stencilBuffer(self):
+eq = GLdouble_4(*self.normal, -self.dist)
+glClipPlane(GL_CLIP_PLANE0, eq)
+glEnable(GL_CLIP_PLANE0)
+
+glClear(GL_STENCIL_BUFFER_BIT)
+glEnable(GL_STENCIL_TEST)
+
+glDepthMask(GL_FALSE)
+glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+
+glEnable(GL_CULL_FACE)
+glEnable(GL_DEPTH_TEST)
+
+query = GLuint()
+glGenQueries(1, query)
+glBeginQuery(GL_SAMPLES_PASSED, query)
+
+# increase stencil-buffer
+glStencilFunc(GL_ALWAYS, 1, 0xff)
+glStencilOp(GL_KEEP, GL_KEEP, GL_INCR)
+glCullFace(GL_FRONT)
+
+# self.handler.vertexOrdering = coin.SoShapeHints.CLOCKWISE
+action = coin.SoGLRenderAction(self.viewport)
+action.apply(self.target)
+
+glEndQuery(GL_SAMPLES_PASSED)
+
+result = GLuint()
+glGetQueryObjectuiv(query, GL_QUERY_RESULT, result)
+
+glDeleteQueries(1, query)
+
+if result.value == 0:
+print("物体被完全遮挡")
+else:
+print("物体未被完全遮挡，通过深度测试的样本数量为：", result.value)
+
+# glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+# glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+# decrease the stencil buffer
+glStencilFunc(GL_ALWAYS, 1, 0xff)
+glStencilOp(GL_KEEP, GL_KEEP, GL_DECR)
+glCullFace(GL_BACK)
+
+# self.handler.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+action.apply(self.target)
+
+# Draw the capped face
+
+glDepthMask(GL_TRUE)
+glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+
+glDisable(GL_CULL_FACE)
+glDisable(GL_CLIP_PLANE0)
+
+glEnable(GL_DEPTH_TEST)
+
+glStencilFunc(GL_EQUAL, 1, 0xff)
+glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP)
+
+self.drawCube(0.2, 0.8, 0.8)
+
+glDisable(GL_STENCIL_TEST)
+glClear(GL_STENCIL_BUFFER_BIT)
+
+self.drawCube(0.1, 0.1, 0.1, True)
+
+def drawCube(self, r=0.2, g=0.2, b=0.2, onlyWires=False):
+root = coin.SoSeparator()
+
+cubeSH = coin.SoShapeHints()
+cubeSH.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+cubeSH.shapeType = coin.SoShapeHints.SOLID
+root.addChild(cubeSH)
+
+cubeMaterial = coin.SoMaterial()
+cubeMaterial.diffuseColor = r, g, b
+root.addChild(cubeMaterial)
+
+if onlyWires:
+cubeType = coin.SoDrawStyle()
+cubeType.style = coin.SoDrawStyle.LINES
+root.addChild(cubeType)
+
+cubeTransform = coin.SoTransform()
+cubeTransform.translation = 0, 0, 0.7
+root.addChild(cubeTransform)
+
+cube = coin.SoCube()
+cube.height = 1.0
+cube.width = 1.0
+cube.depth = 1.0
+root.addChild(cube)
+
+action = coin.SoGLRenderAction(self.viewport)
+action.apply(root)
+
+def setCull(self, back=True):
+pass
+
+
+def myCallbackRoutine(cap, action):
+global handled
+if not action.isOfType(coin.SoGLRenderAction.getClassTypeId()):
+return
+cap.stencilBuffer()
+
+
+def main():
+myWindow = soqt.SoQt.init(sys.argv[0])
+viewer = soqt.SoQtExaminerViewer(myWindow)
+
+root = coin.SoSeparator()
+
+cubeRoot = coin.SoSeparator()
+
+cubeSH = coin.SoShapeHints()
+cubeSH.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+cubeSH.shapeType = coin.SoShapeHints.SOLID
+cubeRoot.addChild(cubeSH)
+
+cubeMaterial = coin.SoMaterial()
+cubeMaterial.diffuseColor = 0.6, 0.1, 0.1
+cubeRoot.addChild(cubeMaterial)
+
+cube = coin.SoCone()
+cube.height = 0.8
+cube.bottomRadius = 0.4
+# cube.height = .8
+# cube.width = .8
+# cube.depth = .8
+cubeRoot.addChild(cube)
+
+plane = coin.SbPlane(coin.SbVec3f(0, 0, 1), coin.SbVec3f(0, 0, 0.2))
+cap = CapCube(plane, cubeRoot, viewer.getViewportRegion(), cubeSH)
+# cap = CapPlane(plane, cube)
+myCallback = coin.SoCallback()
+myCallback.setCallback(myCallbackRoutine, cap)
+
+capPlane = coin.SoClipPlane()
+capPlane.plane = plane
+
+# root += myCallback
+root += capPlane, cubeRoot, myCallback
+
+viewer.setSceneGraph(root)
+viewer.setBackgroundColor(coin.SbColor(.5, .5, .5))
+viewer.setTitle("Examiner Viewer")
+viewer.toggleCameraType()
+viewer.viewAll()
+viewer.show()
+soqt.SoQt.show(myWindow)
+soqt.SoQt.mainLoop()
+```
 
 ## 数据结构
 
